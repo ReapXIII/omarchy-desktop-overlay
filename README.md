@@ -24,7 +24,14 @@ disagrees with your taskbar:
   as the bar's weather widget.
 - **Colors** -- read live from your active theme's
   `~/.local/state/omarchy/current/theme/colors.toml`, so it re-themes itself
-  the moment you run `omarchy theme set`.
+  the moment you run `omarchy theme set`. `omarchy theme set` swaps in a whole
+  new theme directory rather than editing that file in place, so `install.sh`
+  also drops a hook into `~/.config/omarchy/hooks/theme-set.d/` that nudges
+  the overlay to re-read it right after a theme switch -- the same problem
+  Omarchy's own bar works around by pushing the new palette over IPC instead
+  of relying on file watching alone. Light-mode themes (`mode = "light"` in
+  `colors.toml`) get their own card shade and a light (instead of black) text
+  halo, since dark-mode's choices wash out or blur against a bright theme.
 - **System vitals** (optional, off by default) -- CPU%, RAM%, and the
   hottest thermal zone (preferring the CPU package sensor when present),
   read straight from `/proc` and `/sys` -- no `lm_sensors` or other extra
@@ -38,6 +45,9 @@ disagrees with your taskbar:
   `omarchy-weather-icon` on `PATH`)
 - A [Nerd Font](https://www.nerdfonts.com/) installed, for the weather icon
   glyph to render (Omarchy ships `JetBrainsMono Nerd Font` by default)
+- `python-gobject` and `gtk3`, for the `Super+Alt+C` color picker (both
+  ship by default on Omarchy). Everything else works fine without them --
+  `install.sh` just skips that one keybind.
 
 ## Install
 
@@ -68,16 +78,89 @@ within about a second, no restart needed.
 | `showVitals` | Whether the CPU/RAM/temp row starts visible (default `false`) |
 | `vitalsSize` | Font size of the vitals row |
 | `showCard` | Whether the rounded background card is drawn (default `true`); set `false` to have the text float directly on the desktop with no container |
+| `colors` | Optional -- see "Custom colors" below. Omit it (the default) to follow your active theme exactly. |
 
 It currently targets your primary monitor only.
+
+### Custom colors
+
+By default every color -- accent, card background, text, the vitals row --
+comes straight from your active Omarchy theme and updates live when you run
+`omarchy theme set`. If you want to break from the theme, add a `colors`
+object to `config.json`; any key you leave out (or the whole block, if you
+don't want to override anything) keeps following the theme:
+
+```json
+{
+  "colors": {
+    "accent": "#ff79c6",
+    "background": "#1e1e2e",
+    "foreground": "#f8f8f2",
+    "mutedForeground": "#6272a4",
+    "vitalsColor": "#50fa7b",
+    "textHalo": "#000000",
+    "border": "#ff79c680",
+    "divider": "#f8f8f224",
+    "hotTemp": "#ff5555",
+    "cardOpacity": 0.6,
+    "shadowBlur": 0.4,
+    "shadowOffset": 2
+  }
+}
+```
+
+| Key | Overrides |
+|---|---|
+| `accent` | Weather icon |
+| `background` | The card's fill color |
+| `foreground` | Clock and weather-temp text |
+| `mutedForeground` | Date, weather location/wind, "unavailable" text |
+| `vitalsColor` | CPU/RAM/temp row (below the 80°C temp threshold) |
+| `textHalo` | The soft shadow/halo behind the text -- black on dark themes, white on light ones by default; set this if a custom `foreground` needs a different one for legibility |
+| `border` | Card border tint (theme default: `accent` at 35% alpha) |
+| `divider` | The line under the date (theme default: `foreground` at 14% alpha) |
+| `hotTemp` | Vitals temp color at 80°C and above (theme default `#f38ba8`) |
+| `cardOpacity` | Card background opacity, `0`-`1` (theme default `0.5` dark / `0.78` light) |
+| `shadowBlur` | Text shadow/halo blur amount, `0`-`1` (theme default `0.4` dark / `0.25` light) |
+| `shadowOffset` | Text shadow vertical offset in pixels, `0`-`20` (theme default `2` dark / `0` light) |
+
+Colors are `#rgb`, `#rgba`, `#rrggbb`, or `#rrggbbaa` hex strings (`border`
+and `divider` are usually worth giving an alpha channel, since they're tints
+by default); anything else is ignored and falls back to the theme. This is
+per-key, so you can pin just `accent` to your favorite hue and let everything
+else keep tracking the theme.
+
+### Color picker
+
+`Super+Alt+C` opens a small GTK window (`color-picker.py`) with a
+color-chooser button per key above plus sliders for card opacity and text
+shadow blur/offset. Every pick writes straight into `config.json`'s `colors`
+block, which the overlay hot-reloads within about a second, so you see it
+change live. Each row has its own "Reset" back to the theme value, plus a
+"Reset all" at the bottom. It's a normal floating window, not a dialog with
+its own close button, so use Omarchy's usual `Super+W` to close it when
+you're done.
+
+`install.sh` also floats the picker to the right edge of the screen (via a
+Hyprland window rule in `~/.config/hypr/windows.lua`, matched on its
+`omarchy-color-picker` app id) instead of tiling it, so the real overlay
+stays visible next to it as your live preview while you pick -- no separate
+mock-up to keep in sync with the real rendering.
+
+Needs `python-gobject` and `gtk3` (both ship by default on Omarchy); if
+they're missing, `install.sh` skips wiring the keybind and window rule and
+tells you what to install -- re-run it once you have them.
 
 ## Toggle vitals / card
 
 `install.sh` wires up `Super+Shift+V` in `~/.config/hypr/bindings.lua` to step
 through the 4-state cycle live (card only -> card+vitals -> no card -> no
-card+vitals -> back to card only), without touching `config.json`. It's the
-same mechanism the overlay's own IPC target uses, so you can also drive it by
-hand or from your own bindings:
+card+vitals -> back to card only). Each step writes the new state back into
+`config.json`'s `showCard`/`showVitals`, so it survives both a reboot and a
+config.json rewrite from elsewhere (e.g. the color picker saving a pick --
+toggling vitals never gets silently reverted by a color change anymore).
+It's the same mechanism the overlay's own IPC target uses, so you can also
+drive it by hand or from your own bindings:
 
 ```bash
 qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay toggleVitals

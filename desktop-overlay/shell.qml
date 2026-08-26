@@ -30,16 +30,75 @@ ShellRoot {
 
   // ---- Theme colors, read live from the active Omarchy theme so the widget
   // re-themes itself the moment `omarchy theme set` runs. Falls back to a
-  // neutral dark palette if the file is missing or unreadable.
-  property color accent: "#89b4fa"
-  property color background: "#1e1e2e"
-  property color foreground: "#cdd6f4"
-  property color mutedForeground: "#9aa1b7"
+  // neutral dark palette if the file is missing or unreadable. These are the
+  // theme's own values; see "effective colors" below for what actually gets
+  // drawn once an advanced user's config.json overrides are layered on top.
+  property color themeAccent: "#89b4fa"
+  property color themeBackground: "#1e1e2e"
+  property color themeForeground: "#cdd6f4"
+  property color themeMutedForeground: "#9aa1b7"
 
   // Vitals row uses the theme's own bright green (its "everything's fine"
   // status hue) rather than the foreground/accent already used by the clock
   // and weather, so it reads as a distinct, brighter accent of the same theme.
-  property color vitalsColor: "#a6e3a1"
+  property color themeVitalsColor: "#a6e3a1"
+
+  // `colors.toml` carries an explicit `mode = "light" | "dark"`. In dark
+  // themes `dark_background` is darker than `background`, so using it for
+  // the card gives the darkest thing on screen -- good separation from
+  // most wallpapers. In light themes `dark_background` is barely darker
+  // than `background` (both near-white), so the card nearly disappears
+  // against a bright wallpaper; `darker_background` is the shade that
+  // actually reads as distinct there. Same story for the text shadow: a
+  // black halo behind near-black light-mode text just smears into the
+  // glyphs, so light mode gets a light halo instead.
+  property bool lightMode: false
+  property color themeCardBgColor: themeBackground
+  property real themeCardBgOpacity: 0.5
+  property color themeTextHaloColor: "#000000"
+
+  // ---- Advanced color overrides from config.json's optional "colors"
+  // object (see applyOverlayConfig() below). Each is "" / -1 when unset, in
+  // which case the theme value above wins -- so the default, with no
+  // "colors" block at all, is exactly the live theme.
+  property string colorAccent: ""
+  property string colorBackground: ""
+  property string colorForeground: ""
+  property string colorMutedForeground: ""
+  property string colorVitalsColor: ""
+  property string colorTextHalo: ""
+  property string colorBorder: ""
+  property string colorDivider: ""
+  property string colorHotTemp: ""
+  property real colorCardOpacity: -1
+  property real colorShadowBlur: -1
+  property real colorShadowOffset: -1
+
+  // ---- Effective colors: what everything below actually draws with. An
+  // override wins over the theme; overriding "background" also restyles the
+  // card, since the card is the only place background paints. Border and
+  // divider default to theme-derived tints (a translucent accent/foreground)
+  // rather than their own theme.toml fields, since colors.toml has no
+  // "border" or "divider" role of its own.
+  readonly property color accent: colorAccent !== "" ? colorAccent : themeAccent
+  readonly property color background: colorBackground !== "" ? colorBackground : themeBackground
+  readonly property color foreground: colorForeground !== "" ? colorForeground : themeForeground
+  readonly property color mutedForeground: colorMutedForeground !== "" ? colorMutedForeground : themeMutedForeground
+  readonly property color vitalsColor: colorVitalsColor !== "" ? colorVitalsColor : themeVitalsColor
+  readonly property color cardBgColor: colorBackground !== "" ? colorBackground : themeCardBgColor
+  readonly property real cardBgOpacity: colorCardOpacity >= 0 ? colorCardOpacity : themeCardBgOpacity
+  readonly property color textHaloColor: colorTextHalo !== "" ? colorTextHalo : themeTextHaloColor
+  readonly property color borderColor: colorBorder !== "" ? colorBorder : Qt.rgba(accent.r, accent.g, accent.b, 0.35)
+  readonly property color dividerColor: colorDivider !== "" ? colorDivider : Qt.rgba(foreground.r, foreground.g, foreground.b, 0.14)
+  readonly property color hotTempColor: colorHotTemp !== "" ? colorHotTemp : "#f38ba8"
+
+  // Text-shadow "size": shadowBlur is Qt's normalized 0-1 blur amount;
+  // shadowOffset is a literal pixel vertical offset. Dark mode defaults to a
+  // conventional offset drop shadow; light mode to a soft halo with no
+  // offset (see applyTheme()'s comment on why a black halo blurs into
+  // near-black text).
+  readonly property real shadowBlurAmount: colorShadowBlur >= 0 ? colorShadowBlur : (lightMode ? 0.25 : 0.4)
+  readonly property real shadowOffsetAmount: colorShadowOffset >= 0 ? colorShadowOffset : (lightMode ? 0 : 2)
 
   function parseToml(text) {
     var out = {}
@@ -58,13 +117,31 @@ ShellRoot {
 
   function applyTheme(text) {
     var parsed = parseToml(text)
-    if (parsed.accent) root.accent = parsed.accent
-    if (parsed.dark_background) root.background = parsed.dark_background
-    if (parsed.foreground) root.foreground = parsed.foreground
-    if (parsed.dark_foreground) root.mutedForeground = parsed.dark_foreground
-    if (parsed.bright_green || parsed.green) root.vitalsColor = parsed.bright_green || parsed.green
+    root.lightMode = parsed.mode === "light"
+    if (parsed.accent) root.themeAccent = parsed.accent
+    if (parsed.dark_background) root.themeBackground = parsed.dark_background
+    if (parsed.foreground) root.themeForeground = parsed.foreground
+    if (parsed.dark_foreground) root.themeMutedForeground = parsed.dark_foreground
+    if (parsed.bright_green || parsed.green) root.themeVitalsColor = parsed.bright_green || parsed.green
+
+    if (root.lightMode) {
+      root.themeCardBgColor = parsed.darker_background || parsed.dark_background || root.themeBackground
+      root.themeCardBgOpacity = 0.78
+      root.themeTextHaloColor = "#ffffff"
+    } else {
+      root.themeCardBgColor = root.themeBackground
+      root.themeCardBgOpacity = 0.5
+      root.themeTextHaloColor = "#000000"
+    }
   }
 
+  // `watchChanges` alone isn't enough here: `omarchy theme set` swaps in a
+  // brand-new theme directory (rm -rf + mv) rather than editing colors.toml
+  // in place, so the inotify watch is left pointing at a now-deleted inode
+  // and never fires again. Omarchy's own bar sidesteps this by having
+  // `omarchy-theme-set` push the new palette over shell IPC instead of
+  // relying on file watching -- see the "overlay" IpcHandler's reloadTheme()
+  // below, wired up by install.sh's theme-set hook.
   FileView {
     id: themeFile
     path: root.themeColorsPath
@@ -101,13 +178,27 @@ ShellRoot {
   // no-card, no-card+vitals -- stepped through at runtime by one keybind via
   // the "overlay" IPC target's toggleVitals (see IpcHandler below):
   // `qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay toggleVitals`.
-  // `showCard`/`showVitals` in config.json only set the *starting* state.
+  // toggleVitals() writes the new state back into config.json's
+  // showCard/showVitals (see persistCardState() below), so it survives a
+  // reboot and, just as importantly, survives the *next* config.json reload
+  // -- e.g. the color picker rewriting the file to save a color pick would
+  // otherwise stomp the toggle back to config.json's stale on-disk value
+  // every time applyOverlayConfig() re-reads it.
   property bool vitalsVisible: false
   property real vitalsSize: 13
 
   function num(value, fallback) {
     var n = Number(value)
     return isFinite(n) && n > 0 ? n : fallback
+  }
+
+  // "" means unset (theme wins) -- see the effective-color properties above.
+  // Anything that isn't a well-formed #rgb/#rgba/#rrggbb/#rrggbbaa string is
+  // treated the same way rather than handed to QML's color parser, which
+  // would just log a runtime warning and fall back to black.
+  readonly property var hexColorPattern: /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
+  function hexColor(value) {
+    return typeof value === "string" && hexColorPattern.test(value.trim()) ? value.trim() : ""
   }
 
   function applyOverlayConfig(text) {
@@ -124,8 +215,40 @@ ShellRoot {
       root.showCard = cfg.showCard !== false
       root.vitalsVisible = cfg.showVitals === true
       root.vitalsSize = num(cfg.vitalsSize, 13)
+
+      // Advanced: override individual theme colors. Omit "colors" (or any
+      // key in it) to keep following the live theme for that color -- see
+      // README's "Custom colors" section for the full key list.
+      var colors = (cfg.colors && typeof cfg.colors === "object") ? cfg.colors : {}
+      root.colorAccent = root.hexColor(colors.accent)
+      root.colorBackground = root.hexColor(colors.background)
+      root.colorForeground = root.hexColor(colors.foreground)
+      root.colorMutedForeground = root.hexColor(colors.mutedForeground)
+      root.colorVitalsColor = root.hexColor(colors.vitalsColor)
+      root.colorTextHalo = root.hexColor(colors.textHalo)
+      root.colorBorder = root.hexColor(colors.border)
+      root.colorDivider = root.hexColor(colors.divider)
+      root.colorHotTemp = root.hexColor(colors.hotTemp)
+      root.colorCardOpacity = (typeof colors.cardOpacity === "number" && colors.cardOpacity >= 0 && colors.cardOpacity <= 1) ? colors.cardOpacity : -1
+      root.colorShadowBlur = (typeof colors.shadowBlur === "number" && colors.shadowBlur >= 0 && colors.shadowBlur <= 1) ? colors.shadowBlur : -1
+      root.colorShadowOffset = (typeof colors.shadowOffset === "number" && colors.shadowOffset >= 0 && colors.shadowOffset <= 20) ? colors.shadowOffset : -1
     } catch (e) {
       // Keep previous/default values; a half-written config.json is transient.
+    }
+  }
+
+  // Re-reads the file fresh (rather than trusting anything cached) before
+  // writing, so this only ever touches showCard/showVitals -- a concurrent
+  // edit to any other key (e.g. the color picker saving a pick) can't be
+  // clobbered by a stale in-memory copy of the rest of the config.
+  function persistCardState() {
+    try {
+      var cfg = JSON.parse(overlayConfigFile.text() || "{}")
+      cfg.showCard = root.showCard
+      cfg.showVitals = root.vitalsVisible
+      overlayConfigFile.setText(JSON.stringify(cfg, null, 2) + "\n")
+    } catch (e) {
+      // Leave config.json alone; the in-memory toggle still applies this session.
     }
   }
 
@@ -174,9 +297,35 @@ ShellRoot {
   property string weatherWind: ""
   property bool weatherAvailable: false
 
+  // A failed fetch (network blip, wttr.in hiccup) used to just sit as
+  // "unavailable" until the next full weatherRefreshMinutes cycle -- up to
+  // 15 minutes of a dead-looking widget. Give it a few short retries first;
+  // each full refresh cycle gets a fresh budget so an earlier exhausted
+  // round (e.g. waking with the network still down) doesn't starve retries
+  // for the rest of the session.
+  property int weatherRetries: 0
+  readonly property int weatherMaxRetries: 4
+
   function refreshWeather() {
+    root.weatherRetries = 0
+    fetchWeather()
+  }
+
+  function fetchWeather() {
     if (!statusProc.running) statusProc.running = true
     if (!iconProc.running) iconProc.running = true
+  }
+
+  function retryWeather() {
+    if (root.weatherRetries >= root.weatherMaxRetries) return
+    root.weatherRetries++
+    weatherRetryTimer.restart()
+  }
+
+  Timer {
+    id: weatherRetryTimer
+    interval: 30 * 1000
+    onTriggered: root.fetchWeather()
   }
 
   Process {
@@ -194,6 +343,7 @@ ShellRoot {
           root.weatherAvailable = true
         } else {
           root.weatherAvailable = false
+          root.retryWeather()
         }
       }
     }
@@ -307,6 +457,15 @@ ShellRoot {
   IpcHandler {
     target: "overlay"
 
+    // Called from the theme-set.d hook (see install.sh) right after
+    // `omarchy theme set` swaps in the new theme directory, since watching
+    // colors.toml for changes can't see through that swap (see themeFile
+    // above).
+    function reloadTheme(): string {
+      themeFile.reload()
+      return "ok"
+    }
+
     function toggleVitals(): string {
       if (root.showCard && !root.vitalsVisible) {
         root.vitalsVisible = true
@@ -319,6 +478,7 @@ ShellRoot {
         root.showCard = true
         root.vitalsVisible = false
       }
+      root.persistCardState()
       return (root.showCard ? "card" : "no-card") + (root.vitalsVisible ? "+vitals" : "")
     }
 
@@ -373,9 +533,9 @@ ShellRoot {
           anchors.fill: parent
           visible: root.showCard
           radius: 28
-          color: Qt.rgba(root.background.r, root.background.g, root.background.b, 0.5)
+          color: Qt.rgba(root.cardBgColor.r, root.cardBgColor.g, root.cardBgColor.b, root.cardBgOpacity)
           border.width: 1
-          border.color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.35)
+          border.color: root.borderColor
 
           layer.enabled: true
           layer.effect: MultiEffect {
@@ -398,10 +558,10 @@ ShellRoot {
           layer.enabled: true
           layer.effect: MultiEffect {
             shadowEnabled: true
-            shadowColor: "#000000"
-            shadowOpacity: 0.85
-            shadowBlur: 0.4
-            shadowVerticalOffset: 2
+            shadowColor: root.textHaloColor
+            shadowOpacity: root.lightMode ? 0.7 : 0.85
+            shadowBlur: root.shadowBlurAmount
+            shadowVerticalOffset: root.shadowOffsetAmount
           }
 
           readonly property real contentWidth: Math.max(
@@ -433,7 +593,7 @@ ShellRoot {
             anchors.horizontalCenter: parent.horizontalCenter
             width: cardColumn.contentWidth
             height: 1
-            color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.14)
+            color: root.dividerColor
           }
 
           Row {
@@ -512,7 +672,7 @@ ShellRoot {
               text: Math.round(root.tempC) + "°C"
               font.family: root.fontFamily
               font.pixelSize: root.vitalsSize
-              color: root.tempC >= 80 ? "#f38ba8" : root.vitalsColor
+              color: root.tempC >= 80 ? root.hotTempColor : root.vitalsColor
             }
           }
         }
