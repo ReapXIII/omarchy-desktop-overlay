@@ -36,7 +36,7 @@ disagrees with your taskbar:
 ## Install
 
 ```bash
-git clone <this-repo-url>
+git clone [https://github.com/ReapXIII/omarchy-desktop-overlay]
 cd omarchy-desktop-overlay
 ./install.sh
 ```
