@@ -279,7 +279,7 @@ ShellRoot {
       "cat /proc/stat | head -1; echo '---MEM---'; grep -E '^MemTotal|^MemAvailable' /proc/meminfo; echo '---TEMP---'; for f in /sys/class/thermal/thermal_zone*/type; do d=$(dirname \"$f\"); printf '%s|%s\\n' \"$(cat \"$f\" 2>/dev/null)\" \"$(cat \"$d/temp\" 2>/dev/null)\"; done 2>/dev/null"]
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.applyVitals(text())
+      onStreamFinished: root.applyVitals(text)
     }
   }
 
