@@ -66,7 +66,7 @@ within about a second, no restart needed.
 | `weatherIconSize` / `weatherTempSize` / `weatherDetailSize` | Weather row font sizes |
 | `showVitals` | Whether the CPU/RAM/temp row starts visible (default `false`) |
 | `vitalsSize` | Font size of the vitals row |
-| `showCard` | Whether the rounded background card is drawn (default `true`); set `false` to have the text float directly on the desktop with no container |
+| `showCard` | Whether the rounded background card is drawn (default `false`, text floats directly on the desktop); set `true` for the card/border/shadow container |
 
 It currently targets your primary monitor only.
 

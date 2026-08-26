@@ -38,7 +38,7 @@ ShellRoot {
 
   // Vitals row reuses the theme's muted foreground but a touch darker, so it
   // stays visually secondary to the clock/weather without losing the theme's hue.
-  readonly property color vitalsColor: Qt.darker(mutedForeground, 1.35)
+  readonly property color vitalsColor: Qt.darker(mutedForeground, 1.8)
 
   function parseToml(text) {
     var out = {}
@@ -92,7 +92,7 @@ ShellRoot {
   property real weatherIconSize: 44
   property real weatherTempSize: 24
   property real weatherDetailSize: 13
-  property bool showCard: true
+  property bool showCard: false
 
   // ---- System vitals (CPU/RAM/temp): off by default, toggled at runtime via
   // the "overlay" IPC target (see IpcHandler below) -- bind a key to
@@ -117,7 +117,7 @@ ShellRoot {
       root.weatherIconSize = num(cfg.weatherIconSize, 44)
       root.weatherTempSize = num(cfg.weatherTempSize, 24)
       root.weatherDetailSize = num(cfg.weatherDetailSize, 13)
-      root.showCard = cfg.showCard !== false
+      root.showCard = cfg.showCard === true
       root.vitalsVisible = cfg.showVitals === true
       root.vitalsSize = num(cfg.vitalsSize, 13)
     } catch (e) {
@@ -383,8 +383,8 @@ ShellRoot {
           layer.effect: MultiEffect {
             shadowEnabled: true
             shadowColor: "#000000"
-            shadowOpacity: 0.55
-            shadowBlur: 0.6
+            shadowOpacity: 0.85
+            shadowBlur: 0.4
             shadowVerticalOffset: 2
           }
 
