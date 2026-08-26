@@ -36,9 +36,10 @@ ShellRoot {
   property color foreground: "#cdd6f4"
   property color mutedForeground: "#9aa1b7"
 
-  // Vitals row reuses the theme's muted foreground but a touch darker, so it
-  // stays visually secondary to the clock/weather without losing the theme's hue.
-  readonly property color vitalsColor: Qt.darker(mutedForeground, 1.8)
+  // Vitals row uses the theme's own bright green (its "everything's fine"
+  // status hue) rather than the foreground/accent already used by the clock
+  // and weather, so it reads as a distinct, brighter accent of the same theme.
+  property color vitalsColor: "#a6e3a1"
 
   function parseToml(text) {
     var out = {}
@@ -61,6 +62,7 @@ ShellRoot {
     if (parsed.dark_background) root.background = parsed.dark_background
     if (parsed.foreground) root.foreground = parsed.foreground
     if (parsed.dark_foreground) root.mutedForeground = parsed.dark_foreground
+    if (parsed.bright_green || parsed.green) root.vitalsColor = parsed.bright_green || parsed.green
   }
 
   FileView {
