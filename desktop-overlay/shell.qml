@@ -36,6 +36,10 @@ ShellRoot {
   property color foreground: "#cdd6f4"
   property color mutedForeground: "#9aa1b7"
 
+  // Vitals row reuses the theme's muted foreground but a touch darker, so it
+  // stays visually secondary to the clock/weather without losing the theme's hue.
+  readonly property color vitalsColor: Qt.darker(mutedForeground, 1.35)
+
   function parseToml(text) {
     var out = {}
     var lines = String(text || "").split("\n")
@@ -88,6 +92,7 @@ ShellRoot {
   property real weatherIconSize: 44
   property real weatherTempSize: 24
   property real weatherDetailSize: 13
+  property bool showCard: true
 
   // ---- System vitals (CPU/RAM/temp): off by default, toggled at runtime via
   // the "overlay" IPC target (see IpcHandler below) -- bind a key to
@@ -112,6 +117,7 @@ ShellRoot {
       root.weatherIconSize = num(cfg.weatherIconSize, 44)
       root.weatherTempSize = num(cfg.weatherTempSize, 24)
       root.weatherDetailSize = num(cfg.weatherDetailSize, 13)
+      root.showCard = cfg.showCard !== false
       root.vitalsVisible = cfg.showVitals === true
       root.vitalsSize = num(cfg.vitalsSize, 13)
     } catch (e) {
@@ -332,8 +338,8 @@ ShellRoot {
 
       Item {
         id: card
-        width: cardColumn.implicitWidth + 72
-        height: cardColumn.implicitHeight + 48
+        width: cardColumn.implicitWidth + (root.showCard ? 72 : 0)
+        height: cardColumn.implicitHeight + (root.showCard ? 48 : 0)
 
         x: {
           if (root.position.indexOf("left") !== -1) return root.margin
@@ -349,6 +355,7 @@ ShellRoot {
         Rectangle {
           id: cardBg
           anchors.fill: parent
+          visible: root.showCard
           radius: 28
           color: Qt.rgba(root.background.r, root.background.g, root.background.b, 0.5)
           border.width: 1
@@ -368,6 +375,18 @@ ShellRoot {
           id: cardColumn
           anchors.centerIn: parent
           spacing: 10
+
+          // A subtle drop shadow on the text itself (not just the card), so
+          // everything stays legible against a bright wallpaper even when
+          // showCard turns the background off.
+          layer.enabled: true
+          layer.effect: MultiEffect {
+            shadowEnabled: true
+            shadowColor: "#000000"
+            shadowOpacity: 0.55
+            shadowBlur: 0.6
+            shadowVerticalOffset: 2
+          }
 
           readonly property real contentWidth: Math.max(
             timeLabel.implicitWidth, dateLabel.implicitWidth,
@@ -461,7 +480,7 @@ ShellRoot {
               text: "CPU " + Math.round(root.cpuPercent) + "%"
               font.family: root.fontFamily
               font.pixelSize: root.vitalsSize
-              color: root.mutedForeground
+              color: root.vitalsColor
             }
             Text {
               visible: root.memPercent >= 0
@@ -469,7 +488,7 @@ ShellRoot {
               text: "RAM " + Math.round(root.memPercent) + "%"
               font.family: root.fontFamily
               font.pixelSize: root.vitalsSize
-              color: root.mutedForeground
+              color: root.vitalsColor
             }
             Text {
               visible: root.tempAvailable
@@ -477,7 +496,7 @@ ShellRoot {
               text: Math.round(root.tempC) + "°C"
               font.family: root.fontFamily
               font.pixelSize: root.vitalsSize
-              color: root.tempC >= 80 ? "#f38ba8" : root.mutedForeground
+              color: root.tempC >= 80 ? "#f38ba8" : root.vitalsColor
             }
           }
         }
