@@ -28,8 +28,9 @@ disagrees with your taskbar:
 - **System vitals** (optional, off by default) -- CPU%, RAM%, and the
   hottest thermal zone (preferring the CPU package sensor when present),
   read straight from `/proc` and `/sys` -- no `lm_sensors` or other extra
-  packages needed. Toggle it on/off live with `Super+Shift+V`, or start it
-  enabled by setting `"showVitals": true` in `config.json`.
+  packages needed. `Super+Shift+V` steps through card only -> card+vitals ->
+  no card -> no card+vitals -> back to card only; `config.json` sets which of
+  those 4 states it starts in (default: card, no vitals).
 
 ## Requirements
 
@@ -66,15 +67,16 @@ within about a second, no restart needed.
 | `weatherIconSize` / `weatherTempSize` / `weatherDetailSize` | Weather row font sizes |
 | `showVitals` | Whether the CPU/RAM/temp row starts visible (default `false`) |
 | `vitalsSize` | Font size of the vitals row |
-| `showCard` | Whether the rounded background card is drawn (default `false`, text floats directly on the desktop); set `true` for the card/border/shadow container |
+| `showCard` | Whether the rounded background card is drawn (default `true`); set `false` to have the text float directly on the desktop with no container |
 
 It currently targets your primary monitor only.
 
-## Toggle vitals
+## Toggle vitals / card
 
-`install.sh` wires up `Super+Shift+V` in `~/.config/hypr/bindings.lua` to flip
-the vitals row on/off live, without touching `config.json`. It's the same
-mechanism the overlay's own IPC target uses, so you can also drive it by
+`install.sh` wires up `Super+Shift+V` in `~/.config/hypr/bindings.lua` to step
+through the 4-state cycle live (card only -> card+vitals -> no card -> no
+card+vitals -> back to card only), without touching `config.json`. It's the
+same mechanism the overlay's own IPC target uses, so you can also drive it by
 hand or from your own bindings:
 
 ```bash

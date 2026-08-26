@@ -94,12 +94,14 @@ ShellRoot {
   property real weatherIconSize: 44
   property real weatherTempSize: 24
   property real weatherDetailSize: 13
-  property bool showCard: false
+  property bool showCard: true
 
-  // ---- System vitals (CPU/RAM/temp): off by default, toggled at runtime via
-  // the "overlay" IPC target (see IpcHandler below) -- bind a key to
+  // ---- System vitals (CPU/RAM/temp): off by default. `showCard` and
+  // `vitalsVisible` together form a 4-state cycle -- card-only, card+vitals,
+  // no-card, no-card+vitals -- stepped through at runtime by one keybind via
+  // the "overlay" IPC target's toggleVitals (see IpcHandler below):
   // `qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay toggleVitals`.
-  // `showVitals` in config.json only sets the *starting* state on launch.
+  // `showCard`/`showVitals` in config.json only set the *starting* state.
   property bool vitalsVisible: false
   property real vitalsSize: 13
 
@@ -119,7 +121,7 @@ ShellRoot {
       root.weatherIconSize = num(cfg.weatherIconSize, 44)
       root.weatherTempSize = num(cfg.weatherTempSize, 24)
       root.weatherDetailSize = num(cfg.weatherDetailSize, 13)
-      root.showCard = cfg.showCard === true
+      root.showCard = cfg.showCard !== false
       root.vitalsVisible = cfg.showVitals === true
       root.vitalsSize = num(cfg.vitalsSize, 13)
     } catch (e) {
@@ -300,12 +302,24 @@ ShellRoot {
   }
 
   // External toggle: `qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay toggleVitals`
+  // Steps through all 4 combinations of showCard/vitalsVisible in order:
+  // card only -> card+vitals -> no card -> no card+vitals -> back to card only.
   IpcHandler {
     target: "overlay"
 
     function toggleVitals(): string {
-      root.vitalsVisible = !root.vitalsVisible
-      return root.vitalsVisible ? "on" : "off"
+      if (root.showCard && !root.vitalsVisible) {
+        root.vitalsVisible = true
+      } else if (root.showCard && root.vitalsVisible) {
+        root.showCard = false
+        root.vitalsVisible = false
+      } else if (!root.showCard && !root.vitalsVisible) {
+        root.vitalsVisible = true
+      } else {
+        root.showCard = true
+        root.vitalsVisible = false
+      }
+      return (root.showCard ? "card" : "no-card") + (root.vitalsVisible ? "+vitals" : "")
     }
 
     function ping(): string { return "ok" }
