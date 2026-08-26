@@ -25,6 +25,11 @@ disagrees with your taskbar:
 - **Colors** -- read live from your active theme's
   `~/.local/state/omarchy/current/theme/colors.toml`, so it re-themes itself
   the moment you run `omarchy theme set`.
+- **System vitals** (optional, off by default) -- CPU%, RAM%, and the
+  hottest thermal zone (preferring the CPU package sensor when present),
+  read straight from `/proc` and `/sys` -- no `lm_sensors` or other extra
+  packages needed. Toggle it on/off live with `Super+Shift+V`, or start it
+  enabled by setting `"showVitals": true` in `config.json`.
 
 ## Requirements
 
@@ -59,12 +64,25 @@ within about a second, no restart needed.
 | `fontFamily` | Any installed font; needs to be a Nerd Font for the weather glyph |
 | `timeSize` / `dateSize` | Font size of the clock / date line |
 | `weatherIconSize` / `weatherTempSize` / `weatherDetailSize` | Weather row font sizes |
+| `showVitals` | Whether the CPU/RAM/temp row starts visible (default `false`) |
+| `vitalsSize` | Font size of the vitals row |
 
 It currently targets your primary monitor only.
+
+## Toggle vitals
+
+`install.sh` wires up `Super+Shift+V` in `~/.config/hypr/bindings.lua` to flip
+the vitals row on/off live, without touching `config.json`. It's the same
+mechanism the overlay's own IPC target uses, so you can also drive it by
+hand or from your own bindings:
+
+```bash
+qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay toggleVitals
+```
 
 ## Uninstall
 
 ```bash
-./uninstall.sh          # stops it, removes the autostart entry, keeps config.json
+./uninstall.sh          # stops it, removes the autostart entry and the vitals keybind, keeps config.json
 ./uninstall.sh --purge  # also deletes ~/.config/omarchy/desktop-overlay
 ```

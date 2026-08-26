@@ -12,6 +12,9 @@ DEST_DIR="$HOME/.config/omarchy/desktop-overlay"
 AUTOSTART="$HOME/.config/hypr/autostart.lua"
 AUTOSTART_LINE='o.launch_on_start("quickshell -n -p " .. os.getenv("HOME") .. "/.config/omarchy/desktop-overlay")'
 AUTOSTART_MARKER="omarchy/desktop-overlay"
+BINDINGS="$HOME/.config/hypr/bindings.lua"
+KEYBIND_MARKER="Toggle desktop vitals"
+KEYBIND_LINE='o.bind("SUPER + SHIFT + V", "Toggle desktop vitals", "qs ipc -n -p $HOME/.config/omarchy/desktop-overlay call -- overlay toggleVitals")'
 
 command -v quickshell >/dev/null 2>&1 || {
   echo "quickshell was not found on PATH -- this overlay needs Omarchy's Quickshell install." >&2
@@ -48,6 +51,23 @@ if [[ -f "$AUTOSTART" ]]; then
 else
   echo "Warning: $AUTOSTART not found -- add this line to your Hyprland autostart yourself:" >&2
   echo "  $AUTOSTART_LINE" >&2
+fi
+
+if [[ -f "$BINDINGS" ]]; then
+  if grep -qF "$KEYBIND_MARKER" "$BINDINGS"; then
+    echo "Vitals toggle keybind already wired up in $BINDINGS -- leaving it alone."
+  else
+    {
+      echo ""
+      echo "-- Toggle CPU/RAM/temp on the desktop clock overlay (omarchy-desktop-overlay)."
+      echo "$KEYBIND_LINE"
+    } >> "$BINDINGS"
+    echo "Added Super+Shift+V keybind to $BINDINGS (toggles the vitals row)."
+    command -v hyprctl >/dev/null 2>&1 && hyprctl reload >/dev/null 2>&1 || true
+  fi
+else
+  echo "Warning: $BINDINGS not found -- add this keybind yourself to toggle vitals:" >&2
+  echo "  $KEYBIND_LINE" >&2
 fi
 
 if pgrep -f "quickshell -n -p $DEST_DIR" >/dev/null 2>&1; then
