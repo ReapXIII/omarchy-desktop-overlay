@@ -1,0 +1,10 @@
+{
+  "position": "center",
+  "margin": 48,
+  "fontFamily": "JetBrainsMono Nerd Font",
+  "timeSize": 76,
+  "dateSize": 18,
+  "weatherIconSize": 44,
+  "weatherTempSize": 24,
+  "weatherDetailSize": 13
+}
