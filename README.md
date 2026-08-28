@@ -3,25 +3,24 @@
 A fancy clock + weather widget for [Omarchy](https://omarchy.org/) that sits
 on your desktop -- drawn above the wallpaper, below every normal window --
 and never intercepts the mouse, except while you're actively dragging it to
-a new spot. CPU/RAM/temp lives separately, as a real widget in the taskbar
-itself -- see "System stats (taskbar)" below.
+a new spot.
+
+Looking for the CPU/RAM/temp taskbar widget this repo used to also ship?
+It's a real Omarchy shell plugin now, split into its own repo since it
+installs a completely different way (`omarchy plugin add`, not this repo's
+`install.sh`): **[omarchy-bar-stats](https://github.com/ReapXIII/omarchy-bar-stats)**.
 
 ## What it is
 
-Two things, installed together by the same `install.sh`:
+This is **not** an Omarchy shell plugin (those are bar widgets/panels
+registered through the shell's plugin registry, meant for on-demand popups).
+This is its own tiny, independent [Quickshell](https://quickshell.org/)
+instance -- a `PanelWindow` on the wlr `bottom` layer, click-through except
+while you're actively dragging it (see "Reposition by dragging" below), so
+it runs alongside Omarchy's own shell (the bar) without touching it.
 
-- **The clock/weather overlay** is its own tiny, independent
-  [Quickshell](https://quickshell.org/) instance -- a `PanelWindow` on the
-  wlr `bottom` layer with an empty input mask, so it's fully click-through.
-  It runs alongside Omarchy's own shell (the bar) without touching it. This
-  is **not** an Omarchy shell plugin (those are bar widgets/panels
-  registered through the shell's plugin registry).
-- **The system-stats widget** *is* a real Omarchy shell plugin -- a normal
-  bar widget, registered through the shell's plugin registry like any
-  first-party one, living in the taskbar itself rather than on the desktop.
-
-The overlay pulls its data straight from the same places the bar does, so
-it never disagrees with your taskbar:
+It pulls its data straight from the same places the bar does, so it never
+disagrees with your taskbar:
 
 - **Clock format** (12h/24h) -- read from `~/.config/omarchy/shell.json`,
   matching your bar's clock widget setting.
@@ -39,17 +38,6 @@ it never disagrees with your taskbar:
   of relying on file watching alone. Light-mode themes (`mode = "light"` in
   `colors.toml`) get their own card shade and a light (instead of black) text
   halo, since dark-mode's choices wash out or blur against a bright theme.
-
-## System stats (taskbar)
-
-CPU%, RAM%, and the hottest thermal zone (preferring the CPU package sensor
-when present), read straight from `/proc` and `/sys` -- no `lm_sensors` or
-other extra packages needed, same as before. `install.sh` places it in the
-taskbar right after the Workspaces widget on the left, as
-`workspaces  |  CPU 12% · RAM 40% · 62°C`. It's drawn with the bar's own
-theme colors and font, so it re-themes itself automatically on `omarchy
-theme set` -- no config file or color picker for this one. Source lives in
-`bar-plugin/`.
 
 ## Requirements
 
@@ -71,18 +59,22 @@ cd omarchy-desktop-overlay
 
 This copies `desktop-overlay/` into `~/.config/omarchy/desktop-overlay/`,
 adds a launch line to `~/.config/hypr/autostart.lua` (so it starts every
-login), and starts it immediately for your current session. It also copies
-`bar-plugin/` into `~/.config/omarchy/plugins/`, enables it, and places it in
-the taskbar right after the Workspaces widget (see "System stats (taskbar)"
-above). Re-running it is safe -- it won't overwrite a `config.json` you've
-already customized, won't duplicate the autostart line, and won't move the
-taskbar widget if you've already rearranged it yourself.
+login), and starts it immediately for your current session. Re-running it
+is safe -- it won't overwrite a `config.json` you've already customized,
+and won't duplicate the autostart line.
+
+Want CPU/RAM/temp in the taskbar too? That's a separate install:
+
+```bash
+omarchy plugin add https://github.com/ReapXIII/omarchy-bar-stats --enable
+```
+
+See that repo's README for placing it next to a specific widget.
 
 ## Configure
 
 Edit `~/.config/omarchy/desktop-overlay/config.json` -- changes hot-reload
-within about a second, no restart needed. (The taskbar system-stats widget
-has no config file of its own -- see "System stats (taskbar)" above.)
+within about a second, no restart needed.
 
 | Key | Meaning |
 |---|---|
@@ -205,6 +197,9 @@ To go back to a named preset instead of a dragged position, just set
 ## Uninstall
 
 ```bash
-./uninstall.sh          # stops it, removes autostart/keybinds and the bar plugin, keeps config.json
+./uninstall.sh          # stops it, removes autostart/keybinds, keeps config.json
 ./uninstall.sh --purge  # also deletes ~/.config/omarchy/desktop-overlay
 ```
+
+This doesn't touch the taskbar plugin; remove that separately with
+`omarchy plugin remove reapxiii.system-stats --yes`.

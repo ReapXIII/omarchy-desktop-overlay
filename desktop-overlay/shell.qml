@@ -21,8 +21,8 @@ import Quickshell.Wayland
 // pill uses (which in turn read the location saved by omarchy-weather-location).
 //
 // CPU/RAM/temp used to live here too; that moved out to its own Omarchy bar
-// plugin (see ../bar-plugin/) so it shows up in the taskbar itself rather
-// than duplicating a status readout on the desktop.
+// plugin (github.com/ReapXIII/omarchy-bar-stats) so it shows up in the
+// taskbar itself rather than duplicating a status readout on the desktop.
 //
 // Position, size, and font are user-editable in the sibling config.json;
 // see applyOverlayConfig() below for the schema. Edits hot-reload on save.

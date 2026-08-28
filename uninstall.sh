@@ -1,8 +1,11 @@
 #!/bin/bash
-# Removes the desktop clock/weather overlay and the CPU/RAM/temp bar plugin:
-# stops the running overlay instance, strips its autostart entry and
-# keybinds, removes the bar plugin, and (with --purge) deletes the overlay's
+# Removes the desktop clock/weather overlay: stops the running instance,
+# strips its autostart entry and keybinds, and (with --purge) deletes its
 # config too.
+#
+# This does not touch the CPU/RAM/temp taskbar widget -- that's a separate
+# plugin now (https://github.com/ReapXIII/omarchy-bar-stats); remove it with
+# `omarchy plugin remove reapxiii.system-stats --yes` if you want it gone too.
 set -euo pipefail
 
 DEST_DIR="$HOME/.config/omarchy/desktop-overlay"
@@ -10,8 +13,6 @@ AUTOSTART="$HOME/.config/hypr/autostart.lua"
 BINDINGS="$HOME/.config/hypr/bindings.lua"
 WINDOWS_LUA="$HOME/.config/hypr/windows.lua"
 THEME_HOOK_DEST="$HOME/.config/omarchy/hooks/theme-set.d/desktop-overlay.sh"
-PLUGIN_ID="reapxiii.system-stats"
-PLUGIN_DEST_DIR="$HOME/.config/omarchy/plugins/$PLUGIN_ID"
 
 pkill -f "quickshell -n -p $DEST_DIR" 2>/dev/null && echo "Stopped running overlay." || true
 pkill -f "desktop-overlay/color-picker.py" 2>/dev/null && echo "Closed the color picker." || true
@@ -116,18 +117,6 @@ else:
     print("No color picker window rule found (already removed?).")
 PY
   command -v hyprctl >/dev/null 2>&1 && hyprctl reload >/dev/null 2>&1 || true
-fi
-
-if [[ -d "$PLUGIN_DEST_DIR" ]]; then
-  if command -v omarchy >/dev/null 2>&1; then
-    omarchy plugin remove "$PLUGIN_ID" --yes 2>/dev/null || true
-    echo "Removed the $PLUGIN_ID bar plugin."
-  else
-    rm -rf "$PLUGIN_DEST_DIR"
-    echo "Warning: omarchy CLI not found -- deleted $PLUGIN_DEST_DIR directly." >&2
-    echo "  It may still be referenced in ~/.config/omarchy/shell.json's bar layout;" >&2
-    echo "  remove any \"$PLUGIN_ID\" entry there by hand if the taskbar complains." >&2
-  fi
 fi
 
 if [[ "${1:-}" == "--purge" ]]; then
