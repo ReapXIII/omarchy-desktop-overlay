@@ -68,40 +68,6 @@ else
   echo "  $AUTOSTART_LINE" >&2
 fi
 
-# Migrate off older bindings this repo used to install:
-# - Super+Shift+V used to toggle vitals (CPU/RAM/temp moved out to its own
-#   Omarchy bar plugin -- see https://github.com/ReapXIII/omarchy-bar-stats),
-#   so the overlay's IPC target lost toggleVitals() in favor of a plain
-#   toggleCard().
-# - Super+Shift+M used to toggle positioning mode. It turned out to already
-#   be bound to something else (Spotify) on at least one setup, and
-#   positioning mode is tied to the color picker's open/closed state now
-#   instead (see color-picker.py and startPositioning()/stopPositioning()
-#   in shell.qml) -- so this binding is just removed, not replaced.
-# Drop the old blocks so the marker check below re-adds the renamed one
-# fresh, with nothing left over for the removed one.
-if [[ -f "$BINDINGS" ]]; then
-  python3 - "$BINDINGS" <<'PY'
-import re, sys
-path = sys.argv[1]
-text = open(path).read()
-patterns = [
-    re.compile(
-        r'\n?-- Toggle CPU/RAM/temp on the desktop clock overlay.*?\no\.bind\("SUPER \+ SHIFT \+ V", "Toggle desktop vitals",.*?\)\n?',
-        re.DOTALL),
-    re.compile(
-        r'\n?-- Drag the desktop clock overlay to a new spot.*?\no\.bind\("SUPER \+ SHIFT \+ M", "Reposition desktop overlay",.*?\)\n?',
-        re.DOTALL),
-]
-new_text = text
-for pattern in patterns:
-    new_text = pattern.sub("\n", new_text)
-if new_text != text:
-    open(path, "w").write(new_text)
-    print("Removed a retired desktop-overlay keybind.")
-PY
-fi
-
 if [[ -f "$BINDINGS" ]]; then
   if grep -qF "$CARD_KEYBIND_MARKER" "$BINDINGS"; then
     echo "Card toggle keybind already wired up in $BINDINGS -- leaving it alone."
@@ -117,27 +83,6 @@ if [[ -f "$BINDINGS" ]]; then
 else
   echo "Warning: $BINDINGS not found -- add this keybind yourself:" >&2
   echo "  $CARD_KEYBIND_LINE" >&2
-fi
-
-# Migrate off any older version of this binding -- the original Super+Shift+C
-# (conflicted with an existing app keybind for some users) and/or the
-# `pgrep -f desktop-overlay/color-picker.py || ...` guard (which always
-# self-matched its own wrapping shell's command line and so never actually
-# launched the picker) -- so the marker check below re-adds it fresh.
-if [[ -f "$BINDINGS" ]] && grep -qF 'Open desktop overlay color picker' "$BINDINGS" \
-   && ! grep -qF "$COLOR_PICKER_LINE" "$BINDINGS"; then
-  python3 - "$BINDINGS" <<'PY'
-import re, sys
-path = sys.argv[1]
-text = open(path).read()
-pattern = re.compile(
-    r'\n?-- Open a GTK color picker for the desktop clock overlay.*?\no\.bind\("SUPER \+ (SHIFT|ALT) \+ C", "Open desktop overlay color picker",.*?\)\n?',
-    re.DOTALL,
-)
-new_text = pattern.sub("\n", text)
-if new_text != text:
-    open(path, "w").write(new_text)
-PY
 fi
 
 if ! python3 -c "import gi; gi.require_version('Gtk', '3.0'); from gi.repository import Gtk" >/dev/null 2>&1; then

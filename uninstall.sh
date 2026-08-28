@@ -42,38 +42,21 @@ PY
 fi
 
 if [[ -f "$BINDINGS" ]]; then
-  # Drop each marker comment and its o.bind(...) line together: the current
-  # card-toggle binding, plus two retired ones this repo used to install --
-  # the vitals-toggle binding from before CPU/RAM/temp moved to the bar
-  # plugin, and the Super+Shift+M positioning binding from before
-  # positioning mode was tied to the color picker's open/closed state
-  # instead. Covers a straight uninstall without ever re-running a newer
-  # install.sh first (which would otherwise have already migrated these).
+  # Drop the card-toggle keybind's marker comment and o.bind(...) line together.
   python3 - "$BINDINGS" <<'PY'
 import re, sys
 path = sys.argv[1]
 text = open(path).read()
-patterns = [
-    ("card toggle", re.compile(
-        r'\n?-- Show/hide the desktop clock overlay\'s card background.*?\no\.bind\("SUPER \+ SHIFT \+ V", "Toggle desktop overlay card",.*?\)\n?',
-        re.DOTALL)),
-    ("positioning (old)", re.compile(
-        r'\n?-- Drag the desktop clock overlay to a new spot.*?\no\.bind\("SUPER \+ SHIFT \+ M", "Reposition desktop overlay",.*?\)\n?',
-        re.DOTALL)),
-    ("vitals toggle (old)", re.compile(
-        r'\n?-- Toggle CPU/RAM/temp on the desktop clock overlay.*?\no\.bind\("SUPER \+ SHIFT \+ V", "Toggle desktop vitals",.*?\)\n?',
-        re.DOTALL)),
-]
-removed = False
-for label, pattern in patterns:
-    new_text = pattern.sub("\n", text)
-    if new_text != text:
-        text = new_text
-        removed = True
-        print(f"Removed {label} keybind.")
-open(path, "w").write(text)
-if not removed:
-    print("No overlay keybinds found (already removed?).")
+pattern = re.compile(
+    r'\n?-- Show/hide the desktop clock overlay\'s card background.*?\no\.bind\("SUPER \+ SHIFT \+ V", "Toggle desktop overlay card",.*?\)\n?',
+    re.DOTALL,
+)
+new_text = pattern.sub("\n", text)
+if new_text != text:
+    open(path, "w").write(new_text)
+    print("Removed card toggle keybind.")
+else:
+    print("No card toggle keybind found (already removed?).")
 PY
 
   # Drop the color picker's marker comment and o.bind(...) line together.
