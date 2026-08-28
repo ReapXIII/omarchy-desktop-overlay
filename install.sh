@@ -1,10 +1,14 @@
 #!/bin/bash
-# Installs the desktop clock/weather overlay for Omarchy.
+# Installs the desktop clock/weather overlay, plus the CPU/RAM/temp bar
+# plugin, for Omarchy.
 #
 # Copies desktop-overlay/ into ~/.config/omarchy/desktop-overlay/, wires it
 # into ~/.config/hypr/autostart.lua so it launches every login, and starts it
-# for the current session. Safe to re-run: it won't clobber a config.json you
-# already customized, and it won't add a duplicate autostart line.
+# for the current session. Also copies bar-plugin/ into
+# ~/.config/omarchy/plugins/ and places it in the taskbar, right after the
+# Workspaces widget on the left. Safe to re-run: it won't clobber a
+# config.json you already customized, and it won't add duplicate autostart
+# or keybind lines.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,8 +18,8 @@ AUTOSTART="$HOME/.config/hypr/autostart.lua"
 AUTOSTART_LINE='o.launch_on_start("quickshell -n -p " .. os.getenv("HOME") .. "/.config/omarchy/desktop-overlay")'
 AUTOSTART_MARKER="omarchy/desktop-overlay"
 BINDINGS="$HOME/.config/hypr/bindings.lua"
-KEYBIND_MARKER="Toggle desktop vitals"
-KEYBIND_LINE='o.bind("SUPER + SHIFT + V", "Toggle desktop vitals", "qs ipc -n -p $HOME/.config/omarchy/desktop-overlay call -- overlay toggleVitals")'
+CARD_KEYBIND_MARKER="Toggle desktop overlay card"
+CARD_KEYBIND_LINE='o.bind("SUPER + SHIFT + V", "Toggle desktop overlay card", "qs ipc -n -p $HOME/.config/omarchy/desktop-overlay call -- overlay toggleCard")'
 COLOR_PICKER_MARKER="Open desktop overlay color picker"
 COLOR_PICKER_LINE='o.bind("SUPER + ALT + C", "Open desktop overlay color picker", "python3 $HOME/.config/omarchy/desktop-overlay/color-picker.py")'
 THEME_HOOK_DIR="$HOME/.config/omarchy/hooks/theme-set.d"
@@ -23,6 +27,9 @@ THEME_HOOK_DEST="$THEME_HOOK_DIR/desktop-overlay.sh"
 HYPRLAND_LUA="$HOME/.config/hypr/hyprland.lua"
 WINDOWS_LUA="$HOME/.config/hypr/windows.lua"
 WINDOW_RULE_MARKER="omarchy-color-picker"
+PLUGIN_SRC_DIR="$ROOT_DIR/bar-plugin"
+PLUGIN_ID="reapxiii.system-stats"
+PLUGIN_DEST_DIR="$HOME/.config/omarchy/plugins/$PLUGIN_ID"
 
 command -v quickshell >/dev/null 2>&1 || {
   echo "quickshell was not found on PATH -- this overlay needs Omarchy's Quickshell install." >&2
@@ -63,21 +70,54 @@ else
   echo "  $AUTOSTART_LINE" >&2
 fi
 
+# Migrate off older bindings this repo used to install:
+# - Super+Shift+V used to toggle vitals (CPU/RAM/temp moved out to its own
+#   Omarchy bar plugin -- see bar-plugin/), so the overlay's IPC target lost
+#   toggleVitals() in favor of a plain toggleCard().
+# - Super+Shift+M used to toggle positioning mode. It turned out to already
+#   be bound to something else (Spotify) on at least one setup, and
+#   positioning mode is tied to the color picker's open/closed state now
+#   instead (see color-picker.py and startPositioning()/stopPositioning()
+#   in shell.qml) -- so this binding is just removed, not replaced.
+# Drop the old blocks so the marker check below re-adds the renamed one
+# fresh, with nothing left over for the removed one.
 if [[ -f "$BINDINGS" ]]; then
-  if grep -qF "$KEYBIND_MARKER" "$BINDINGS"; then
-    echo "Vitals toggle keybind already wired up in $BINDINGS -- leaving it alone."
+  python3 - "$BINDINGS" <<'PY'
+import re, sys
+path = sys.argv[1]
+text = open(path).read()
+patterns = [
+    re.compile(
+        r'\n?-- Toggle CPU/RAM/temp on the desktop clock overlay.*?\no\.bind\("SUPER \+ SHIFT \+ V", "Toggle desktop vitals",.*?\)\n?',
+        re.DOTALL),
+    re.compile(
+        r'\n?-- Drag the desktop clock overlay to a new spot.*?\no\.bind\("SUPER \+ SHIFT \+ M", "Reposition desktop overlay",.*?\)\n?',
+        re.DOTALL),
+]
+new_text = text
+for pattern in patterns:
+    new_text = pattern.sub("\n", new_text)
+if new_text != text:
+    open(path, "w").write(new_text)
+    print("Removed a retired desktop-overlay keybind.")
+PY
+fi
+
+if [[ -f "$BINDINGS" ]]; then
+  if grep -qF "$CARD_KEYBIND_MARKER" "$BINDINGS"; then
+    echo "Card toggle keybind already wired up in $BINDINGS -- leaving it alone."
   else
     {
       echo ""
-      echo "-- Toggle CPU/RAM/temp on the desktop clock overlay (omarchy-desktop-overlay)."
-      echo "$KEYBIND_LINE"
+      echo "-- Show/hide the desktop clock overlay's card background (omarchy-desktop-overlay)."
+      echo "$CARD_KEYBIND_LINE"
     } >> "$BINDINGS"
-    echo "Added Super+Shift+V keybind to $BINDINGS (toggles the vitals row)."
+    echo "Added Super+Shift+V keybind to $BINDINGS (toggles the card)."
     command -v hyprctl >/dev/null 2>&1 && hyprctl reload >/dev/null 2>&1 || true
   fi
 else
-  echo "Warning: $BINDINGS not found -- add this keybind yourself to toggle vitals:" >&2
-  echo "  $KEYBIND_LINE" >&2
+  echo "Warning: $BINDINGS not found -- add this keybind yourself:" >&2
+  echo "  $CARD_KEYBIND_LINE" >&2
 fi
 
 # Migrate off any older version of this binding -- the original Super+Shift+C
@@ -170,6 +210,50 @@ cp "$ROOT_DIR/hooks/theme-set.sh" "$THEME_HOOK_DEST"
 chmod +x "$THEME_HOOK_DEST"
 echo "Installed theme-set hook to $THEME_HOOK_DEST (keeps overlay colors in sync with \`omarchy theme set\`)."
 
+# CPU/RAM/temp lives in the taskbar itself now, as a real Omarchy bar
+# plugin -- placed right after the Workspaces widget on the left. Needs
+# the `omarchy` CLI (bar/plugin subcommands); skip with a warning if it's
+# somehow missing, same as the GTK-only color picker above.
+if command -v omarchy >/dev/null 2>&1; then
+  mkdir -p "$PLUGIN_DEST_DIR"
+  cp "$PLUGIN_SRC_DIR/manifest.json" "$PLUGIN_SRC_DIR/Stats.qml" "$PLUGIN_DEST_DIR/"
+  # The running shell only looks at ~/.config/omarchy/plugins/ on its own
+  # schedule; nudge it to notice the folder we just dropped in, otherwise
+  # `omarchy plugin enable` below fails with "plugin ... is not known" on a
+  # first install. Best-effort: harmless if the shell isn't running yet.
+  command -v omarchy-shell >/dev/null 2>&1 && omarchy-shell -q shell rescanPlugins
+
+  if omarchy plugin validate "$PLUGIN_DEST_DIR" >/dev/null 2>&1; then
+    plugin_enabled="$(omarchy plugin list --json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    plugins = json.load(sys.stdin)
+except Exception:
+    plugins = []
+print('yes' if any(p.get('id') == '$PLUGIN_ID' and p.get('enabled') for p in plugins) else 'no')
+")"
+    if [[ "$plugin_enabled" != "yes" ]]; then
+      omarchy plugin enable "$PLUGIN_ID" left
+      echo "Enabled the $PLUGIN_ID bar plugin."
+      # `enable` only drops a newly-enabled widget at that section's default
+      # landing spot (not necessarily next to omarchy.workspaces); `move
+      # --after` is what actually repositions it. Only do this the first
+      # time the plugin gets enabled -- if you've since dragged it elsewhere
+      # in the taskbar yourself, re-running install.sh shouldn't undo that.
+      omarchy bar move "$PLUGIN_ID" --after omarchy.workspaces
+      echo "Placed the system-stats widget in the taskbar, right after the Workspaces widget."
+    else
+      echo "Bar plugin already enabled -- leaving its taskbar position alone."
+    fi
+  else
+    echo "Warning: $PLUGIN_ID failed \`omarchy plugin validate\` -- skipping bar plugin setup." >&2
+  fi
+else
+  echo "Warning: omarchy CLI not found -- skipping the taskbar CPU/RAM/temp plugin." >&2
+  echo "  Once available, copy $PLUGIN_SRC_DIR to $PLUGIN_DEST_DIR and run:" >&2
+  echo "  omarchy plugin enable $PLUGIN_ID left && omarchy bar put $PLUGIN_ID --after omarchy.workspaces" >&2
+fi
+
 if pgrep -f "quickshell -n -p $DEST_DIR" >/dev/null 2>&1; then
   echo "Already running."
 else
@@ -179,4 +263,5 @@ else
 fi
 
 echo "Done. Edit $DEST_DIR/config.json to change position, size, or font -- it hot-reloads on save."
-echo "Super+Alt+C opens a color picker for the theme overrides (needs python-gobject + gtk3)."
+echo "Super+Alt+C opens a color picker for the theme overrides (needs python-gobject + gtk3) --"
+echo "  while it's open you can also drag the card to move it; letting go remembers the spot."

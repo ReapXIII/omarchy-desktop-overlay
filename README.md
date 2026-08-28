@@ -2,19 +2,26 @@
 
 A fancy clock + weather widget for [Omarchy](https://omarchy.org/) that sits
 on your desktop -- drawn above the wallpaper, below every normal window --
-and never intercepts the mouse.
+and never intercepts the mouse, except while you're actively dragging it to
+a new spot. CPU/RAM/temp lives separately, as a real widget in the taskbar
+itself -- see "System stats (taskbar)" below.
 
 ## What it is
 
-This is **not** an Omarchy shell plugin (those are bar widgets/panels
-registered through the shell's plugin registry, meant for on-demand popups).
-This is its own tiny, independent [Quickshell](https://quickshell.org/)
-instance -- a `PanelWindow` on the wlr `bottom` layer with an empty input
-mask, so it's fully click-through. It runs alongside Omarchy's own shell
-(the bar) without touching it.
+Two things, installed together by the same `install.sh`:
 
-It pulls its data straight from the same places the bar does, so it never
-disagrees with your taskbar:
+- **The clock/weather overlay** is its own tiny, independent
+  [Quickshell](https://quickshell.org/) instance -- a `PanelWindow` on the
+  wlr `bottom` layer with an empty input mask, so it's fully click-through.
+  It runs alongside Omarchy's own shell (the bar) without touching it. This
+  is **not** an Omarchy shell plugin (those are bar widgets/panels
+  registered through the shell's plugin registry).
+- **The system-stats widget** *is* a real Omarchy shell plugin -- a normal
+  bar widget, registered through the shell's plugin registry like any
+  first-party one, living in the taskbar itself rather than on the desktop.
+
+The overlay pulls its data straight from the same places the bar does, so
+it never disagrees with your taskbar:
 
 - **Clock format** (12h/24h) -- read from `~/.config/omarchy/shell.json`,
   matching your bar's clock widget setting.
@@ -32,12 +39,17 @@ disagrees with your taskbar:
   of relying on file watching alone. Light-mode themes (`mode = "light"` in
   `colors.toml`) get their own card shade and a light (instead of black) text
   halo, since dark-mode's choices wash out or blur against a bright theme.
-- **System vitals** (optional, off by default) -- CPU%, RAM%, and the
-  hottest thermal zone (preferring the CPU package sensor when present),
-  read straight from `/proc` and `/sys` -- no `lm_sensors` or other extra
-  packages needed. `Super+Shift+V` steps through card only -> card+vitals ->
-  no card -> no card+vitals -> back to card only; `config.json` sets which of
-  those 4 states it starts in (default: card, no vitals).
+
+## System stats (taskbar)
+
+CPU%, RAM%, and the hottest thermal zone (preferring the CPU package sensor
+when present), read straight from `/proc` and `/sys` -- no `lm_sensors` or
+other extra packages needed, same as before. `install.sh` places it in the
+taskbar right after the Workspaces widget on the left, as
+`workspaces  |  CPU 12% · RAM 40% · 62°C`. It's drawn with the bar's own
+theme colors and font, so it re-themes itself automatically on `omarchy
+theme set` -- no config file or color picker for this one. Source lives in
+`bar-plugin/`.
 
 ## Requirements
 
@@ -59,24 +71,27 @@ cd omarchy-desktop-overlay
 
 This copies `desktop-overlay/` into `~/.config/omarchy/desktop-overlay/`,
 adds a launch line to `~/.config/hypr/autostart.lua` (so it starts every
-login), and starts it immediately for your current session. Re-running it is
-safe -- it won't overwrite a `config.json` you've already customized, and
-won't duplicate the autostart line.
+login), and starts it immediately for your current session. It also copies
+`bar-plugin/` into `~/.config/omarchy/plugins/`, enables it, and places it in
+the taskbar right after the Workspaces widget (see "System stats (taskbar)"
+above). Re-running it is safe -- it won't overwrite a `config.json` you've
+already customized, won't duplicate the autostart line, and won't move the
+taskbar widget if you've already rearranged it yourself.
 
 ## Configure
 
 Edit `~/.config/omarchy/desktop-overlay/config.json` -- changes hot-reload
-within about a second, no restart needed.
+within about a second, no restart needed. (The taskbar system-stats widget
+has no config file of its own -- see "System stats (taskbar)" above.)
 
 | Key | Meaning |
 |---|---|
-| `position` | `center`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, `top-center`, `bottom-center` |
-| `margin` | Distance from the screen edge in px (ignored when centered) |
+| `position` | `center`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, `top-center`, `bottom-center`, or `custom` |
+| `customX` / `customY` | Card center as a fraction (`0`-`1`) of screen width/height; only used when `position` is `custom`. Normally set by dragging (see "Reposition by dragging" below) rather than by hand. |
+| `margin` | Distance from the screen edge in px (ignored when `position` is `center` or `custom`) |
 | `fontFamily` | Any installed font; needs to be a Nerd Font for the weather glyph |
 | `timeSize` / `dateSize` | Font size of the clock / date line |
 | `weatherIconSize` / `weatherTempSize` / `weatherDetailSize` | Weather row font sizes |
-| `showVitals` | Whether the CPU/RAM/temp row starts visible (default `false`) |
-| `vitalsSize` | Font size of the vitals row |
 | `showCard` | Whether the rounded background card is drawn (default `true`); set `false` to have the text float directly on the desktop with no container |
 | `colors` | Optional -- see "Custom colors" below. Omit it (the default) to follow your active theme exactly. |
 
@@ -84,11 +99,11 @@ It currently targets your primary monitor only.
 
 ### Custom colors
 
-By default every color -- accent, card background, text, the vitals row --
-comes straight from your active Omarchy theme and updates live when you run
-`omarchy theme set`. If you want to break from the theme, add a `colors`
-object to `config.json`; any key you leave out (or the whole block, if you
-don't want to override anything) keeps following the theme:
+By default every color -- accent, card background, text -- comes straight
+from your active Omarchy theme and updates live when you run `omarchy theme
+set`. If you want to break from the theme, add a `colors` object to
+`config.json`; any key you leave out (or the whole block, if you don't want
+to override anything) keeps following the theme:
 
 ```json
 {
@@ -97,11 +112,9 @@ don't want to override anything) keeps following the theme:
     "background": "#1e1e2e",
     "foreground": "#f8f8f2",
     "mutedForeground": "#6272a4",
-    "vitalsColor": "#50fa7b",
     "textHalo": "#000000",
     "border": "#ff79c680",
     "divider": "#f8f8f224",
-    "hotTemp": "#ff5555",
     "cardOpacity": 0.6,
     "shadowBlur": 0.4,
     "shadowOffset": 2
@@ -115,11 +128,9 @@ don't want to override anything) keeps following the theme:
 | `background` | The card's fill color |
 | `foreground` | Clock and weather-temp text |
 | `mutedForeground` | Date, weather location/wind, "unavailable" text |
-| `vitalsColor` | CPU/RAM/temp row (below the 80°C temp threshold) |
 | `textHalo` | The soft shadow/halo behind the text -- black on dark themes, white on light ones by default; set this if a custom `foreground` needs a different one for legibility |
 | `border` | Card border tint (theme default: `accent` at 35% alpha) |
 | `divider` | The line under the date (theme default: `foreground` at 14% alpha) |
-| `hotTemp` | Vitals temp color at 80°C and above (theme default `#f38ba8`) |
 | `cardOpacity` | Card background opacity, `0`-`1` (theme default `0.5` dark / `0.78` light) |
 | `shadowBlur` | Text shadow/halo blur amount, `0`-`1` (theme default `0.4` dark / `0.25` light) |
 | `shadowOffset` | Text shadow vertical offset in pixels, `0`-`20` (theme default `2` dark / `0` light) |
@@ -145,30 +156,55 @@ you're done.
 Hyprland window rule in `~/.config/hypr/windows.lua`, matched on its
 `omarchy-color-picker` app id) instead of tiling it, so the real overlay
 stays visible next to it as your live preview while you pick -- no separate
-mock-up to keep in sync with the real rendering.
+mock-up to keep in sync with the real rendering. While the picker is open
+you can also drag the card itself to a new spot -- see "Reposition by
+dragging" below.
 
 Needs `python-gobject` and `gtk3` (both ship by default on Omarchy); if
 they're missing, `install.sh` skips wiring the keybind and window rule and
 tells you what to install -- re-run it once you have them.
 
-## Toggle vitals / card
+## Toggle card
 
-`install.sh` wires up `Super+Shift+V` in `~/.config/hypr/bindings.lua` to step
-through the 4-state cycle live (card only -> card+vitals -> no card -> no
-card+vitals -> back to card only). Each step writes the new state back into
-`config.json`'s `showCard`/`showVitals`, so it survives both a reboot and a
-config.json rewrite from elsewhere (e.g. the color picker saving a pick --
-toggling vitals never gets silently reverted by a color change anymore).
-It's the same mechanism the overlay's own IPC target uses, so you can also
-drive it by hand or from your own bindings:
+`install.sh` wires up `Super+Shift+V` in `~/.config/hypr/bindings.lua` to
+show/hide the card background live. The state writes back into
+`config.json`'s `showCard`, so it survives both a reboot and a config.json
+rewrite from elsewhere (e.g. the color picker saving a pick). It's the same
+mechanism the overlay's own IPC target uses, so you can also drive it by
+hand or from your own bindings:
 
 ```bash
-qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay toggleVitals
+qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay toggleCard
 ```
+
+## Reposition by dragging
+
+Open the color picker (`Super+Alt+C`) -- while it's open, the card gets an
+accent-colored outline and becomes draggable (the rest of the desktop stays
+click-through as always -- only the card itself starts accepting clicks).
+Drag it anywhere on screen; letting go writes `position: "custom"` plus
+`customX`/`customY` (the card's center, as a fraction of screen
+width/height) into `config.json` immediately, so it's remembered even if you
+drag it again before closing the picker. Close the picker window
+(`Super+W`) to lock the position in and return to fully click-through.
+
+Positioning mode is tied to the picker's own open/closed state rather than
+its own keybind -- the picker already sits next to the overlay as a live
+preview while you pick colors, so it doubles as the place to move it too.
+`color-picker.py` drives it via the same IPC mechanism as the card toggle:
+
+```bash
+qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay startPositioning
+qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay stopPositioning
+```
+
+To go back to a named preset instead of a dragged position, just set
+`position` back to one of the presets (e.g. `"center"`) in `config.json` --
+`customX`/`customY` are simply ignored until `position` is `"custom"` again.
 
 ## Uninstall
 
 ```bash
-./uninstall.sh          # stops it, removes the autostart entry and the vitals keybind, keeps config.json
+./uninstall.sh          # stops it, removes autostart/keybinds and the bar plugin, keeps config.json
 ./uninstall.sh --purge  # also deletes ~/.config/omarchy/desktop-overlay
 ```

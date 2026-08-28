@@ -6,8 +6,9 @@ import Quickshell.Wayland
 
 // Standalone desktop overlay: a big clock + weather card centered on the
 // screen, drawn on the wlr "bottom" layer -- above the wallpaper (which sits
-// on "background"), below every normal window. Fully click-through, so it
-// never steals mouse input.
+// on "background"), below every normal window. Click-through except while
+// actively being repositioned (see "positioning mode" below), so it never
+// steals mouse input the rest of the time.
 //
 // Runs as its own Quickshell instance (see ~/.config/hypr/autostart.lua),
 // independent of the Omarchy shell (the bar) so it can't be destabilized by
@@ -19,8 +20,13 @@ import Quickshell.Wayland
 // omarchy-weather-status / omarchy-weather-icon helpers the bar's weather
 // pill uses (which in turn read the location saved by omarchy-weather-location).
 //
+// CPU/RAM/temp used to live here too; that moved out to its own Omarchy bar
+// plugin (see ../bar-plugin/) so it shows up in the taskbar itself rather
+// than duplicating a status readout on the desktop.
+//
 // Position, size, and font are user-editable in the sibling config.json;
 // see applyOverlayConfig() below for the schema. Edits hot-reload on save.
+// Position can also be set by dragging: see "positioning mode" below.
 ShellRoot {
   id: root
 
@@ -37,11 +43,6 @@ ShellRoot {
   property color themeBackground: "#1e1e2e"
   property color themeForeground: "#cdd6f4"
   property color themeMutedForeground: "#9aa1b7"
-
-  // Vitals row uses the theme's own bright green (its "everything's fine"
-  // status hue) rather than the foreground/accent already used by the clock
-  // and weather, so it reads as a distinct, brighter accent of the same theme.
-  property color themeVitalsColor: "#a6e3a1"
 
   // `colors.toml` carries an explicit `mode = "light" | "dark"`. In dark
   // themes `dark_background` is darker than `background`, so using it for
@@ -65,11 +66,9 @@ ShellRoot {
   property string colorBackground: ""
   property string colorForeground: ""
   property string colorMutedForeground: ""
-  property string colorVitalsColor: ""
   property string colorTextHalo: ""
   property string colorBorder: ""
   property string colorDivider: ""
-  property string colorHotTemp: ""
   property real colorCardOpacity: -1
   property real colorShadowBlur: -1
   property real colorShadowOffset: -1
@@ -84,13 +83,11 @@ ShellRoot {
   readonly property color background: colorBackground !== "" ? colorBackground : themeBackground
   readonly property color foreground: colorForeground !== "" ? colorForeground : themeForeground
   readonly property color mutedForeground: colorMutedForeground !== "" ? colorMutedForeground : themeMutedForeground
-  readonly property color vitalsColor: colorVitalsColor !== "" ? colorVitalsColor : themeVitalsColor
   readonly property color cardBgColor: colorBackground !== "" ? colorBackground : themeCardBgColor
   readonly property real cardBgOpacity: colorCardOpacity >= 0 ? colorCardOpacity : themeCardBgOpacity
   readonly property color textHaloColor: colorTextHalo !== "" ? colorTextHalo : themeTextHaloColor
   readonly property color borderColor: colorBorder !== "" ? colorBorder : Qt.rgba(accent.r, accent.g, accent.b, 0.35)
   readonly property color dividerColor: colorDivider !== "" ? colorDivider : Qt.rgba(foreground.r, foreground.g, foreground.b, 0.14)
-  readonly property color hotTempColor: colorHotTemp !== "" ? colorHotTemp : "#f38ba8"
 
   // Text-shadow "size": shadowBlur is Qt's normalized 0-1 blur amount;
   // shadowOffset is a literal pixel vertical offset. Dark mode defaults to a
@@ -122,7 +119,6 @@ ShellRoot {
     if (parsed.dark_background) root.themeBackground = parsed.dark_background
     if (parsed.foreground) root.themeForeground = parsed.foreground
     if (parsed.dark_foreground) root.themeMutedForeground = parsed.dark_foreground
-    if (parsed.bright_green || parsed.green) root.themeVitalsColor = parsed.bright_green || parsed.green
 
     if (root.lightMode) {
       root.themeCardBgColor = parsed.darker_background || parsed.dark_background || root.themeBackground
@@ -161,10 +157,18 @@ ShellRoot {
   // config.json (sibling to this file) rather than shell.json, since it has
   // nothing to do with the bar. Hot-reloads on save.
   readonly property string configPath: home + "/.config/omarchy/desktop-overlay/config.json"
-  readonly property var validPositions: ["center", "top-left", "top-right", "bottom-left", "bottom-right", "top-center", "bottom-center"]
+  // "custom" is what dragging the card (see "positioning mode" below)
+  // writes; the rest are the original fixed presets.
+  readonly property var validPositions: ["center", "top-left", "top-right", "bottom-left", "bottom-right", "top-center", "bottom-center", "custom"]
 
   property string position: "center"
   property real margin: 48
+  // Fractional (0-1) screen coordinates for position "custom" -- the card's
+  // center as a fraction of screen width/height, so a saved position still
+  // makes sense if the monitor resolution changes. Only used when
+  // position === "custom"; ignored (like margin) otherwise.
+  property real customX: 0.5
+  property real customY: 0.5
   property string fontFamily: "JetBrainsMono Nerd Font"
   property real timeSize: 76
   property real dateSize: 18
@@ -173,19 +177,19 @@ ShellRoot {
   property real weatherDetailSize: 13
   property bool showCard: true
 
-  // ---- System vitals (CPU/RAM/temp): off by default. `showCard` and
-  // `vitalsVisible` together form a 4-state cycle -- card-only, card+vitals,
-  // no-card, no-card+vitals -- stepped through at runtime by one keybind via
-  // the "overlay" IPC target's toggleVitals (see IpcHandler below):
-  // `qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay toggleVitals`.
-  // toggleVitals() writes the new state back into config.json's
-  // showCard/showVitals (see persistCardState() below), so it survives a
-  // reboot and, just as importantly, survives the *next* config.json reload
-  // -- e.g. the color picker rewriting the file to save a color pick would
-  // otherwise stomp the toggle back to config.json's stale on-disk value
-  // every time applyOverlayConfig() re-reads it.
-  property bool vitalsVisible: false
-  property real vitalsSize: 13
+  // ---- Positioning mode: on for as long as the color picker
+  // (color-picker.py) is open, rather than a dedicated keybind -- the
+  // picker already sits next to the overlay as a live preview while you
+  // pick colors, so it's also the natural place to grab and drag the card.
+  // color-picker.py calls the "overlay" IPC target's startPositioning() on
+  // window show and stopPositioning() on window close (see below). While
+  // true, the card can be dragged anywhere on screen; each release writes
+  // position "custom" plus customX/customY back to config.json immediately
+  // -- so it's remembered even if you keep dragging it again before closing
+  // the picker. The panel is click-through the rest of the time -- see the
+  // PanelWindow's mask below, which only accepts pointer input over the
+  // card itself, and only in this mode.
+  property bool positioningMode: false
 
   function num(value, fallback) {
     var n = Number(value)
@@ -201,11 +205,17 @@ ShellRoot {
     return typeof value === "string" && hexColorPattern.test(value.trim()) ? value.trim() : ""
   }
 
+  function clampUnit(value, fallback) {
+    return (typeof value === "number" && isFinite(value) && value >= 0 && value <= 1) ? value : fallback
+  }
+
   function applyOverlayConfig(text) {
     try {
       var cfg = JSON.parse(text || "{}")
       root.position = root.validPositions.indexOf(cfg.position) !== -1 ? cfg.position : "center"
       root.margin = num(cfg.margin, 48)
+      root.customX = clampUnit(cfg.customX, 0.5)
+      root.customY = clampUnit(cfg.customY, 0.5)
       root.fontFamily = typeof cfg.fontFamily === "string" && cfg.fontFamily.trim() !== "" ? cfg.fontFamily : "JetBrainsMono Nerd Font"
       root.timeSize = num(cfg.timeSize, 76)
       root.dateSize = num(cfg.dateSize, 18)
@@ -213,8 +223,6 @@ ShellRoot {
       root.weatherTempSize = num(cfg.weatherTempSize, 24)
       root.weatherDetailSize = num(cfg.weatherDetailSize, 13)
       root.showCard = cfg.showCard !== false
-      root.vitalsVisible = cfg.showVitals === true
-      root.vitalsSize = num(cfg.vitalsSize, 13)
 
       // Advanced: override individual theme colors. Omit "colors" (or any
       // key in it) to keep following the live theme for that color -- see
@@ -224,11 +232,9 @@ ShellRoot {
       root.colorBackground = root.hexColor(colors.background)
       root.colorForeground = root.hexColor(colors.foreground)
       root.colorMutedForeground = root.hexColor(colors.mutedForeground)
-      root.colorVitalsColor = root.hexColor(colors.vitalsColor)
       root.colorTextHalo = root.hexColor(colors.textHalo)
       root.colorBorder = root.hexColor(colors.border)
       root.colorDivider = root.hexColor(colors.divider)
-      root.colorHotTemp = root.hexColor(colors.hotTemp)
       root.colorCardOpacity = (typeof colors.cardOpacity === "number" && colors.cardOpacity >= 0 && colors.cardOpacity <= 1) ? colors.cardOpacity : -1
       root.colorShadowBlur = (typeof colors.shadowBlur === "number" && colors.shadowBlur >= 0 && colors.shadowBlur <= 1) ? colors.shadowBlur : -1
       root.colorShadowOffset = (typeof colors.shadowOffset === "number" && colors.shadowOffset >= 0 && colors.shadowOffset <= 20) ? colors.shadowOffset : -1
@@ -238,17 +244,29 @@ ShellRoot {
   }
 
   // Re-reads the file fresh (rather than trusting anything cached) before
-  // writing, so this only ever touches showCard/showVitals -- a concurrent
-  // edit to any other key (e.g. the color picker saving a pick) can't be
-  // clobbered by a stale in-memory copy of the rest of the config.
+  // writing, so each of these only ever touches its own keys -- a concurrent
+  // edit to any other key (e.g. the color picker saving a pick while a drag
+  // is also in flight) can't be clobbered by a stale in-memory copy of the
+  // rest of the config.
   function persistCardState() {
     try {
       var cfg = JSON.parse(overlayConfigFile.text() || "{}")
       cfg.showCard = root.showCard
-      cfg.showVitals = root.vitalsVisible
       overlayConfigFile.setText(JSON.stringify(cfg, null, 2) + "\n")
     } catch (e) {
       // Leave config.json alone; the in-memory toggle still applies this session.
+    }
+  }
+
+  function persistPosition() {
+    try {
+      var cfg = JSON.parse(overlayConfigFile.text() || "{}")
+      cfg.position = root.position
+      cfg.customX = root.customX
+      cfg.customY = root.customY
+      overlayConfigFile.setText(JSON.stringify(cfg, null, 2) + "\n")
+    } catch (e) {
+      // Leave config.json alone; the in-memory position still applies this session.
     }
   }
 
@@ -369,91 +387,10 @@ ShellRoot {
     onTriggered: root.refreshWeather()
   }
 
-  // ---- System vitals: CPU%, RAM%, and hottest thermal zone (preferring the
-  // CPU package sensor when present). Reads straight from /proc and /sys, so
-  // no extra packages (e.g. lm_sensors) are required. Only polls while
-  // visible, so it costs nothing when the row is hidden.
-  property real cpuPercent: -1
-  property real memPercent: -1
-  property real tempC: -1
-  property bool tempAvailable: false
-  property real prevCpuTotal: -1
-  property real prevCpuIdle: -1
-
-  function applyVitals(text) {
-    try {
-      var memSplit = String(text || "").split("---MEM---")
-      var cpuLine = memSplit[0].trim()
-      var tempSplit = (memSplit[1] || "").split("---TEMP---")
-      var memBlock = tempSplit[0] || ""
-      var tempBlock = tempSplit[1] || ""
-
-      var cpuFields = cpuLine.split(/\s+/).slice(1).map(Number)
-      if (cpuFields.length >= 4) {
-        var idle = cpuFields[3] + (cpuFields[4] || 0)
-        var total = cpuFields.reduce(function(a, b) { return a + (isFinite(b) ? b : 0) }, 0)
-        if (root.prevCpuTotal >= 0) {
-          var totalDelta = total - root.prevCpuTotal
-          var idleDelta = idle - root.prevCpuIdle
-          if (totalDelta > 0)
-            root.cpuPercent = Math.max(0, Math.min(100, 100 * (totalDelta - idleDelta) / totalDelta))
-        }
-        root.prevCpuTotal = total
-        root.prevCpuIdle = idle
-      }
-
-      var memTotal = 0, memAvail = 0
-      memBlock.split("\n").forEach(function(line) {
-        var m = line.match(/^(MemTotal|MemAvailable):\s*(\d+)/)
-        if (!m) return
-        if (m[1] === "MemTotal") memTotal = Number(m[2]); else memAvail = Number(m[2])
-      })
-      if (memTotal > 0)
-        root.memPercent = Math.max(0, Math.min(100, 100 * (memTotal - memAvail) / memTotal))
-
-      var best = null
-      tempBlock.split("\n").forEach(function(line) {
-        var parts = line.split("|")
-        if (parts.length !== 2) return
-        var type = parts[0].trim()
-        var milli = Number(parts[1].trim())
-        if (!isFinite(milli)) return
-        var entry = { type: type, c: milli / 1000 }
-        if (!best) best = entry
-        if (/x86_pkg_temp|cpu/i.test(type)) best = entry
-      })
-      root.tempAvailable = !!best
-      if (best) root.tempC = best.c
-    } catch (e) {
-      // Transient/partial poll output; keep previous values.
-    }
-  }
-
-  function refreshVitals() {
-    if (!vitalsProc.running) vitalsProc.running = true
-  }
-
-  Process {
-    id: vitalsProc
-    command: ["bash", "-c",
-      "cat /proc/stat | head -1; echo '---MEM---'; grep -E '^MemTotal|^MemAvailable' /proc/meminfo; echo '---TEMP---'; for f in /sys/class/thermal/thermal_zone*/type; do d=$(dirname \"$f\"); printf '%s|%s\\n' \"$(cat \"$f\" 2>/dev/null)\" \"$(cat \"$d/temp\" 2>/dev/null)\"; done 2>/dev/null"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.applyVitals(text)
-    }
-  }
-
-  Timer {
-    interval: 2000
-    running: root.vitalsVisible
-    repeat: true
-    triggeredOnStart: true
-    onTriggered: root.refreshVitals()
-  }
-
-  // External toggle: `qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay toggleVitals`
-  // Steps through all 4 combinations of showCard/vitalsVisible in order:
-  // card only -> card+vitals -> no card -> no card+vitals -> back to card only.
+  // External calls:
+  //   qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay toggleCard
+  //   qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay startPositioning
+  //   qs ipc -n -p ~/.config/omarchy/desktop-overlay call -- overlay stopPositioning
   IpcHandler {
     target: "overlay"
 
@@ -466,20 +403,25 @@ ShellRoot {
       return "ok"
     }
 
-    function toggleVitals(): string {
-      if (root.showCard && !root.vitalsVisible) {
-        root.vitalsVisible = true
-      } else if (root.showCard && root.vitalsVisible) {
-        root.showCard = false
-        root.vitalsVisible = false
-      } else if (!root.showCard && !root.vitalsVisible) {
-        root.vitalsVisible = true
-      } else {
-        root.showCard = true
-        root.vitalsVisible = false
-      }
+    function toggleCard(): string {
+      root.showCard = !root.showCard
       root.persistCardState()
-      return (root.showCard ? "card" : "no-card") + (root.vitalsVisible ? "+vitals" : "")
+      return root.showCard ? "card" : "no-card"
+    }
+
+    // Called by color-picker.py on window show/destroy (see its
+    // COLOR_PICKER_LINE-launched process) -- explicit start/stop rather than
+    // a toggle, since the picker's own open/closed state is already
+    // authoritative and a toggle could drift out of sync with it (e.g. two
+    // stray calls in a row).
+    function startPositioning(): string {
+      root.positioningMode = true
+      return "positioning-on"
+    }
+
+    function stopPositioning(): string {
+      root.positioningMode = false
+      return "positioning-off"
     }
 
     function ping(): string { return "ok" }
@@ -503,9 +445,13 @@ ShellRoot {
       WlrLayershell.layer: WlrLayer.Bottom
       WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
-      // An empty region: the surface accepts no pointer input at all, so
-      // every click passes straight through to whatever is beneath it.
-      mask: Region {}
+      // Click-through everywhere except the card itself, and even that only
+      // while root.positioningMode is true -- otherwise this is the same
+      // fully click-through empty region as before, so every click passes
+      // straight through to whatever is beneath it.
+      Region { id: clickThroughRegion }
+      Region { id: cardDragRegion; item: card }
+      mask: root.positioningMode ? cardDragRegion : clickThroughRegion
 
       SystemClock {
         id: clock
@@ -517,15 +463,83 @@ ShellRoot {
         width: cardColumn.implicitWidth + (root.showCard ? 72 : 0)
         height: cardColumn.implicitHeight + (root.showCard ? 48 : 0)
 
-        x: {
-          if (root.position.indexOf("left") !== -1) return root.margin
-          if (root.position.indexOf("right") !== -1) return parent.width - width - root.margin
-          return (parent.width - width) / 2
+        // x/y are computed imperatively (rather than declaratively bound)
+        // so DragHandler below can take them over mid-drag without fighting
+        // a binding -- see computePosition() and the DragHandler's
+        // onActiveChanged.
+        function computePosition() {
+          if (!card.parent) return
+          if (root.position === "custom") {
+            var targetX = root.customX * card.parent.width
+            var targetY = root.customY * card.parent.height
+            card.x = Math.max(0, Math.min(card.parent.width - card.width, targetX - card.width / 2))
+            card.y = Math.max(0, Math.min(card.parent.height - card.height, targetY - card.height / 2))
+            return
+          }
+          if (root.position.indexOf("left") !== -1) card.x = root.margin
+          else if (root.position.indexOf("right") !== -1) card.x = card.parent.width - card.width - root.margin
+          else card.x = (card.parent.width - card.width) / 2
+          if (root.position.indexOf("top") !== -1) card.y = root.margin
+          else if (root.position.indexOf("bottom") !== -1) card.y = card.parent.height - card.height - root.margin
+          else card.y = (card.parent.height - card.height) / 2
         }
-        y: {
-          if (root.position.indexOf("top") !== -1) return root.margin
-          if (root.position.indexOf("bottom") !== -1) return parent.height - height - root.margin
-          return (parent.height - height) / 2
+
+        onWidthChanged: computePosition()
+        onHeightChanged: computePosition()
+        Component.onCompleted: computePosition()
+
+        Connections {
+          target: root
+          function onPositionChanged() { card.computePosition() }
+          function onMarginChanged() { card.computePosition() }
+          function onCustomXChanged() { card.computePosition() }
+          function onCustomYChanged() { card.computePosition() }
+        }
+
+        Connections {
+          target: card.parent
+          ignoreUnknownSignals: true
+          function onWidthChanged() { card.computePosition() }
+          function onHeightChanged() { card.computePosition() }
+        }
+
+        DragHandler {
+          id: dragHandler
+          // A static target with `enabled` gating it (rather than toggling
+          // `target` itself between card/null) -- reassigning `target` was
+          // leaving Qt's internal drag reference frame stale on
+          // reattachment, which is what caused wildly-wrong jumps instead
+          // of tracking the cursor.
+          target: card
+          enabled: root.positioningMode
+          xAxis.minimum: 0
+          xAxis.maximum: card.parent ? Math.max(0, card.parent.width - card.width) : 0
+          yAxis.minimum: 0
+          yAxis.maximum: card.parent ? Math.max(0, card.parent.height - card.height) : 0
+
+          onActiveChanged: {
+            if (active || !root.positioningMode || !card.parent) return
+            // Capture the drag's true end position into locals *before*
+            // touching any root property. Assigning root.customX alone
+            // synchronously triggers computePosition() (via the Connections
+            // handler below) using the still-stale root.customY, which
+            // resets card.y back to its old position right then -- so
+            // reading card.y *after* that assignment would silently read
+            // back the old, wrong value instead of where the card was just
+            // dragged to. Computing both from local snapshots first sidesteps
+            // that entirely.
+            var newCustomX = Math.max(0, Math.min(1, (card.x + card.width / 2) / card.parent.width))
+            var newCustomY = Math.max(0, Math.min(1, (card.y + card.height / 2) / card.parent.height))
+            root.customX = newCustomX
+            root.customY = newCustomY
+            root.position = "custom"
+            root.persistPosition()
+          }
+        }
+
+        HoverHandler {
+          enabled: root.positioningMode
+          cursorShape: Qt.SizeAllCursor
         }
 
         Rectangle {
@@ -547,6 +561,18 @@ ShellRoot {
           }
         }
 
+        // Positioning-mode affordance: an accent outline around the card so
+        // it's obvious it's draggable right now, drawn regardless of
+        // showCard (so a card-hidden setup still shows something to grab).
+        Rectangle {
+          anchors.fill: parent
+          visible: root.positioningMode
+          radius: cardBg.radius
+          color: "transparent"
+          border.width: 2
+          border.color: root.accent
+        }
+
         Column {
           id: cardColumn
           anchors.centerIn: parent
@@ -566,8 +592,7 @@ ShellRoot {
 
           readonly property real contentWidth: Math.max(
             timeLabel.implicitWidth, dateLabel.implicitWidth,
-            weatherRow.implicitWidth, unavailableLabel.implicitWidth,
-            vitalsRow.implicitWidth)
+            weatherRow.implicitWidth, unavailableLabel.implicitWidth)
 
           Text {
             id: timeLabel
@@ -641,39 +666,6 @@ ShellRoot {
             font.pixelSize: root.weatherDetailSize
             font.italic: true
             color: root.mutedForeground
-          }
-
-          Row {
-            id: vitalsRow
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 16
-            visible: root.vitalsVisible && (root.cpuPercent >= 0 || root.memPercent >= 0 || root.tempAvailable)
-            height: visible ? implicitHeight : 0
-
-            Text {
-              visible: root.cpuPercent >= 0
-              width: visible ? implicitWidth : 0
-              text: "CPU " + Math.round(root.cpuPercent) + "%"
-              font.family: root.fontFamily
-              font.pixelSize: root.vitalsSize
-              color: root.vitalsColor
-            }
-            Text {
-              visible: root.memPercent >= 0
-              width: visible ? implicitWidth : 0
-              text: "RAM " + Math.round(root.memPercent) + "%"
-              font.family: root.fontFamily
-              font.pixelSize: root.vitalsSize
-              color: root.vitalsColor
-            }
-            Text {
-              visible: root.tempAvailable
-              width: visible ? implicitWidth : 0
-              text: Math.round(root.tempC) + "°C"
-              font.family: root.fontFamily
-              font.pixelSize: root.vitalsSize
-              color: root.tempC >= 80 ? root.hotTempColor : root.vitalsColor
-            }
           }
         }
       }

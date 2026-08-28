@@ -4,6 +4,13 @@ Super+Alt+C by install.sh. Writes straight into config.json's "colors"
 block; the overlay's own FileView already watches that file and hot-reloads,
 so a pick here shows up on the desktop within about a second.
 
+Also doubles as the trigger for repositioning: while this window is open,
+the overlay card becomes draggable (see startPositioning()/stopPositioning()
+in shell.qml) -- this is already the live-preview companion window next to
+the overlay, so it's the natural place to also grab and move it, and it
+frees up a keybind that (on at least one setup) was already bound to
+something else.
+
 Swatches start from whatever's actually on screen right now: an existing
 config.json override if one is set, otherwise the live theme value computed
 the same way shell.qml's applyTheme() does. That logic has to be kept in
@@ -14,6 +21,7 @@ import fcntl
 import json
 import os
 import re
+import subprocess
 import sys
 
 import gi
@@ -30,8 +38,23 @@ APP_ID = "omarchy-color-picker"
 GLib.set_prgname(APP_ID)
 
 HOME = os.path.expanduser("~")
+OVERLAY_DIR = f"{HOME}/.config/omarchy/desktop-overlay"
 COLORS_TOML = f"{HOME}/.local/state/omarchy/current/theme/colors.toml"
-CONFIG_JSON = f"{HOME}/.config/omarchy/desktop-overlay/config.json"
+CONFIG_JSON = f"{OVERLAY_DIR}/config.json"
+
+
+def call_overlay_ipc(method):
+    """Best-effort: the overlay may not be running, and a missed call just
+    means positioning mode doesn't start/stop -- not worth failing over."""
+    try:
+        subprocess.run(
+            ["qs", "ipc", "-n", "-p", OVERLAY_DIR, "call", "--", "overlay", method],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+    except Exception:
+        pass
 
 # Single-instance guard. This used to be a `pgrep -f color-picker.py` in the
 # keybind command itself, but that command line contains the string
@@ -58,11 +81,9 @@ COLOR_FIELDS = [
     ("background", "Card background"),
     ("foreground", "Text"),
     ("mutedForeground", "Muted text"),
-    ("vitalsColor", "Vitals row"),
     ("textHalo", "Text halo"),
     ("border", "Card border"),
     ("divider", "Divider line"),
-    ("hotTemp", "Hot temp (80°C+)"),
 ]
 
 # (config key, label, min, max, digits, unit)
@@ -109,11 +130,9 @@ def theme_defaults():
         "background": background,
         "foreground": foreground,
         "mutedForeground": parsed.get("dark_foreground") or "#9aa1b7",
-        "vitalsColor": parsed.get("bright_green") or parsed.get("green") or "#a6e3a1",
         "textHalo": "#ffffff" if light else "#000000",
         "border": hex_with_alpha(accent, 0.35),
         "divider": hex_with_alpha(foreground, 0.14),
-        "hotTemp": "#f38ba8",
         "cardOpacity": 0.78 if light else 0.5,
         "shadowBlur": 0.25 if light else 0.4,
         "shadowOffset": 0 if light else 2,
@@ -200,7 +219,18 @@ class ColorPickerWindow(Gtk.Window):
         reset_all.connect("clicked", self._on_reset_all)
         grid.attach(reset_all, 0, row, 3, 1)
 
-        self.connect("destroy", Gtk.main_quit)
+        # While this window is open, the overlay card is draggable too --
+        # see call_overlay_ipc() above and startPositioning()/
+        # stopPositioning() in shell.qml.
+        self.connect("show", self._on_show)
+        self.connect("destroy", self._on_destroy)
+
+    def _on_show(self, _window):
+        call_overlay_ipc("startPositioning")
+
+    def _on_destroy(self, _window):
+        call_overlay_ipc("stopPositioning")
+        Gtk.main_quit()
 
     def _attach_reset(self, grid, row, key):
         reset = Gtk.Button(label="Reset")
@@ -217,9 +247,12 @@ class ColorPickerWindow(Gtk.Window):
 
     def _persist(self):
         # Re-read from disk rather than reusing the config loaded at startup:
-        # the overlay itself writes showCard/showVitals back to this same
-        # file when you toggle vitals (Super+Shift+V), and a stale in-memory
-        # copy here would silently revert that toggle on the next color pick.
+        # the overlay itself writes showCard back to this same file when you
+        # toggle the card (Super+Shift+V), and position/customX/customY when
+        # you drag it (this same window, while it's open -- see
+        # call_overlay_ipc() and _on_show()/_on_destroy() above), and a stale
+        # in-memory copy here would silently revert those on the next color
+        # pick.
         cfg = load_config()
         if self.colors:
             cfg["colors"] = self.colors

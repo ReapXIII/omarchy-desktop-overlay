@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "reapxiii.system-stats",
+  "name": "System Stats",
+  "version": "1.0.0",
+  "author": "ReapXIII",
+  "description": "CPU/RAM/temp readout for the Omarchy taskbar",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Stats.qml"
+  },
+  "barWidget": {
+    "displayName": "System Stats",
+    "description": "CPU/RAM/temp readout for the Omarchy taskbar",
+    "category": "System",
+    "allowMultiple": false
+  }
+}

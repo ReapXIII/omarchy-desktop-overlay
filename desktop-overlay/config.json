@@ -6,7 +6,5 @@
   "dateSize": 18,
   "weatherIconSize": 44,
   "weatherTempSize": 24,
-  "weatherDetailSize": 13,
-  "showVitals": false,
-  "vitalsSize": 13
+  "weatherDetailSize": 13
 }
